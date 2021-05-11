@@ -45,7 +45,9 @@ if not config[configname_for_server].get('port'):
     config[configname_for_server]['port'] = input("Port (enter to accept default 64738): ") or "64738"  
 if not config[configname_for_server].get('botname'):
     config[configname_for_server]['botname'] = str(os.getlogin()) + "-bot"
-
+if not config[configname_for_server].get('channel'):
+    config[configname_for_server]['channel'] = str(0)
+    
 # user-dependent config 
 if not os.getlogin() in config: 
     config[os.getlogin()] = {}
@@ -90,10 +92,6 @@ found_device_name = p.get_device_info_by_host_api_device_index(0, found_device_i
 print("using '" + found_device_name + "'")
 config[os.getlogin()]['usb_device'] = found_device_name
 
-# Save config
-with open(config_filename, 'w') as configfile:
-    config.write(configfile)
-
 #prepare stream
 CHANNELS = max(p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels'), 2)
 stream = p.open(format=FORMAT,
@@ -121,6 +119,16 @@ mumble.callbacks.set_callback(PCS, sound_received_handler)
 mumble.start()
 mumble.is_ready()  # Wait for client is ready
 
+target_channel = mumble.channels[int(config[configname_for_server]['channel'])]
+if target_channel is not None:
+    print("Moving into remembered channel '" + target_channel['name'] + "'")
+    target_channel.move_in()
+else:
+    print("Channel ID " + config[configname_for_server]['channel'] + " not found")
+
+
+
+
 print("Connected. Running...")
 # constant capturing sound and sending it to mumble server
 try:
@@ -131,10 +139,13 @@ try:
 except KeyboardInterrupt:
     pass
 
-me = pymumble_py3.Mumble.users.myself
-print(me)
 
+print("Saving current channel '" + mumble.channels[mumble.users.myself['channel_id']]['name'] + "'")
+config[configname_for_server]['channel'] = str(mumble.users.myself['channel_id'])
 
+# Save config
+with open(config_filename, 'w') as configfile:
+    config.write(configfile)
 
 print("Exit")
 # close the stream and pyaudio instance
