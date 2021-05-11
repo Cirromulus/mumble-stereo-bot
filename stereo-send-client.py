@@ -27,53 +27,75 @@ import pyaudio
 import configparser
 
 # Todo: parse input
-configname_for_server = "DEFAULT"
+configname_for_server = "DEFAULT_SERVER"
 
 config = configparser.ConfigParser()
 config_filename = 'config.ini'
 
 config.read(config_filename)
+
+# Config individually for server
 if not configname_for_server in config:
     config[configname_for_server] = {}
+if not config[configname_for_server].get('servername'):
+    config[configname_for_server]['servername'] = input("servername: ")
+if not config[configname_for_server].get('password'):
+    config[configname_for_server]['password'] = input("password: ")
+if not config[configname_for_server].get('port'):
+    config[configname_for_server]['port'] = input("Port (enter to accept default 64738): ") or "64738"  
+if not config[configname_for_server].get('botname'):
+    config[configname_for_server]['botname'] = str(os.getlogin()) + "-bot"
 
+# user-dependent config 
 if not os.getlogin() in config: 
     config[os.getlogin()] = {}
-    
-server = config[configname_for_server].get('server', 'example.com')
-pwd = config[configname_for_server].get('password', '1337')
-nick = str(os.getlogin()) + "-bot"
-port = config[configname_for_server].getint('port', 64738)
-target_device_name = config[configname_for_server].get('audio_device', '')
 
-print("using bot name: " + nick)
+server = config[configname_for_server]['servername']
+pwd = config[configname_for_server]['password']
+port = int(config[configname_for_server]['port'])
+nick = config[configname_for_server].get('botname', str(os.getlogin()) + "-bot")
 
 # pyaudio set up
-CHUNK = config['system'].getint('chunks', 1024)
+CHUNK = config[os.getlogin()].getint('chunks', 1024)
 FORMAT = pyaudio.paInt16  # pymumble soundchunk.pcm is 16 bits
-RATE = config['system'].getint('samplerate', 48000)  # pymumble soundchunk.pcm is 48000Hz
+RATE = config[os.getlogin()].getint('samplerate', 48000)  # pymumble soundchunk.pcm is 48000Hz
 
-target_device = config['system'].get('usb_device', 'ask')
+target_device = config[os.getlogin()].get('usb_device', 'ask')
 found_device_id = None
 
 p = pyaudio.PyAudio()
 info = p.get_host_api_info_by_index(0)
 numdevices = info.get('deviceCount')
 
+# first, "silent" loop
 for i in range(0, numdevices):
+        if (p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
+            d_name = p.get_device_info_by_host_api_device_index(0, i).get('name')
+            if target_device == d_name:
+                found_device_id = i
+
+if found_device_id is None:
+    # Present devices to user
+    print("Did not find configured device '" + target_device + "'")
+    maxdevices = 0
+    for i in range(0, numdevices):
         if (p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
             d_name = p.get_device_info_by_host_api_device_index(0, i).get('name')
             print ("Input Device id ", i, " - ", d_name, "(" +
                 str(p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) +" channels )")
-            if target_device == d_name:
-                found_device_id = i
-                print ("(using this device because it was found in the config file)")
+            maxdevices = max(maxdevices, i)
+    found_device_id = int(input("pls choose a device: (0-" + str(maxdevices) + ") "))
+    
+found_device_name = p.get_device_info_by_host_api_device_index(0, found_device_id).get('name')
+print("using '" + found_device_name + "'")
+config[os.getlogin()]['usb_device'] = found_device_name
 
-if found_device_id is None:
-    print("Did not find configured device " + target_device)
-    found_device_id = int(input("pls choose a device: (0-" + str(numdevices-1) + ") "))
-print("using " + p.get_device_info_by_host_api_device_index(0, found_device_id).get('name'))
+# Save config
+with open(config_filename, 'w') as configfile:
+    config.write(configfile)
+
+#prepare stream
 CHANNELS = max(p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels'), 2)
-
 stream = p.open(format=FORMAT,
                 channels=CHANNELS,
                 rate=RATE,
@@ -99,19 +121,17 @@ mumble.callbacks.set_callback(PCS, sound_received_handler)
 mumble.start()
 mumble.is_ready()  # Wait for client is ready
 
-# just in-between: Save config
-with open(config_filename, 'w') as configfile:
-    config.write(configfile)
-
-
-
-
+print("Connected. Running...")
 # constant capturing sound and sending it to mumble server
-while True:
-    data = stream.read(CHUNK, exception_on_overflow=False)
-    mumble.sound_output.add_sound(data)
+try:
+    while True:
+        data = stream.read(CHUNK, exception_on_overflow=False)
+        mumble.sound_output.add_sound(data)
 
+except KeyboardInterrupt:
+    pass
 
+print("Exit")
 # close the stream and pyaudio instance
 stream.stop_stream()
 stream.close()
