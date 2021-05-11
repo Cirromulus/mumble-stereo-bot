@@ -20,44 +20,58 @@
 # client (https://www.mumble.com/mumble-download.php) to verbally communicate
 # with this audio-only client.
 #
-# Works on MacOS. Does NOT work on RPi 3B+ (I cannot figure out why. Help will
-# be much appreciated)
-
-#import pymumble.pymumble_py3 as pymumble_py3
 import os
 import pymumble_py3
 from pymumble_py3.callbacks import PYMUMBLE_CLBK_SOUNDRECEIVED as PCS
 import pyaudio
+import configparser
 
-# Connection details for mumble server. Hardcoded for now, will have to be
-# command line arguments eventually
-pwd = "1337"  # password
-server = "pascalpieper.de"  # server address
+# Todo: parse input
+configname_for_server = "DEFAULT"
+
+config = configparser.ConfigParser()
+config_filename = 'config.ini'
+
+config.read(config_filename)
+if not configname_for_server in config:
+    config[configname_for_server] = {}
+
+if not os.getlogin() in config: 
+    config[os.getlogin()] = {}
+    
+server = config[configname_for_server].get('server', 'example.com')
+pwd = config[configname_for_server].get('password', '1337')
 nick = str(os.getlogin()) + "-bot"
-port = 64738  # port number
+port = config[configname_for_server].getint('port', 64738)
+target_device_name = config[configname_for_server].get('audio_device', '')
 
 print("using bot name: " + nick)
 
 # pyaudio set up
-CHUNK = 1024
+CHUNK = config['system'].getint('chunks', 1024)
 FORMAT = pyaudio.paInt16  # pymumble soundchunk.pcm is 16 bits
-RATE = 48000  # pymumble soundchunk.pcm is 48000Hz
+RATE = config['system'].getint('samplerate', 48000)  # pymumble soundchunk.pcm is 48000Hz
+
+target_device = config['system'].get('usb_device', 'ask')
+found_device_id = None
 
 p = pyaudio.PyAudio()
-
-
 info = p.get_host_api_info_by_index(0)
 numdevices = info.get('deviceCount')
-numUsableDevices = 0
+
 for i in range(0, numdevices):
         if (p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
-            print ("Input Device id ", i, " - ", p.get_device_info_by_host_api_device_index(0, i).get('name'), "(" +
-            str(p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) +" channels )")
-            numUsableDevices += 1
+            d_name = p.get_device_info_by_host_api_device_index(0, i).get('name')
+            print ("Input Device id ", i, " - ", d_name, "(" +
+                str(p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) +" channels )")
+            if target_device == d_name:
+                found_device_id = i
+                print ("(using this device because it was found in the config file)")
 
-
-device = int(input("pls choose a device: (0-" + str(numUsableDevices-1) + ") "))
-print("k, using " + p.get_device_info_by_host_api_device_index(0, device).get('name'))
+if found_device_id is None:
+    print("Did not find configured device " + target_device)
+    found_device_id = int(input("pls choose a device: (0-" + str(numdevices-1) + ") "))
+print("using " + p.get_device_info_by_host_api_device_index(0, found_device_id).get('name'))
 CHANNELS = max(p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels'), 2)
 
 stream = p.open(format=FORMAT,
@@ -66,7 +80,7 @@ stream = p.open(format=FORMAT,
                 input=True,  # talk
                 output=True,  # and listen
                 frames_per_buffer=CHUNK,
-                input_device_index=device)
+                input_device_index=found_device_id)
 
 
 # mumble client set up
@@ -76,6 +90,7 @@ def sound_received_handler(user, soundchunk):
 
 
 # Spin up a client and connect to mumble server
+print("Connecting to " + server)
 mumble = pymumble_py3.Mumble(server, nick, password=pwd, port=port,
             stereo = CHANNELS == 2)
 # set up callback called when PCS event occurs
@@ -83,6 +98,12 @@ mumble.callbacks.set_callback(PCS, sound_received_handler)
 #mumble.set_receive_sound(1)  # Enable receiving sound from mumble server
 mumble.start()
 mumble.is_ready()  # Wait for client is ready
+
+# just in-between: Save config
+with open(config_filename, 'w') as configfile:
+    config.write(configfile)
+
+
 
 
 # constant capturing sound and sending it to mumble server
