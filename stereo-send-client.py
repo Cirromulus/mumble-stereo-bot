@@ -43,8 +43,8 @@ if not config[configname_for_server].get('password'):
     config[configname_for_server]['password'] = input("password: ")
 if not config[configname_for_server].get('port'):
     config[configname_for_server]['port'] = input("Port (enter to accept default 64738): ") or "64738"  
-if not config[configname_for_server].get('botname'):
-    config[configname_for_server]['botname'] = str(os.getlogin()) + "-bot"
+#if not config[configname_for_server].get('botname'):
+#    config[configname_for_server]['botname'] = str(os.getlogin()) + "-bot"
 if not config[configname_for_server].get('channel'):
     config[configname_for_server]['channel'] = str(0)
     
