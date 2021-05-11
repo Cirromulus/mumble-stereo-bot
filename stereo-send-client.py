@@ -131,6 +131,11 @@ try:
 except KeyboardInterrupt:
     pass
 
+me = pymumble_py3.Mumble.users.myself
+print(me)
+
+
+
 print("Exit")
 # close the stream and pyaudio instance
 stream.stop_stream()
